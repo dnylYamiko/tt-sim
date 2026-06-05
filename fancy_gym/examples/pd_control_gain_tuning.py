@@ -12,10 +12,10 @@ SEED = 1
 
 env_id = "fancy_ProMP/Reacher5d-v0"
 
-env = fancy_gym.make(env_id, mp_config_override={'controller_kwargs': {'p_gains': 0.05, 'd_gains': 0.05}}).env
+env = gym.make(env_id, mp_config_override={'controller_kwargs': {'p_gains': 0.05, 'd_gains': 0.05}}).env
 env.action_space.seed(SEED)
 
-# Plot difference between real trajectory and target MP trajectory
+# Plot difference between real trajectry and target MP trajectory
 env.reset(seed=SEED)
 w = env.action_space.sample()
 pos, vel = env.get_trajectory(w)

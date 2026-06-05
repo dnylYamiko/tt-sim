@@ -2,6 +2,7 @@ from itertools import chain
 from typing import Callable
 
 import gymnasium as gym
+
 import pytest
 
 import fancy_gym
