@@ -1,0 +1,54 @@
+name: Publish Python package to PyPI
+
+on:
+  push:
+    branches:
+      - release
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    strategy:
+      fail-fast: true  # Terminate the job immediately if any step fails
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # This fetches all history for all branches and tags
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.x"
+
+    - name: Validate version against tag
+      run: |
+        VERSION=$(python -c 'import toml; print(toml.load("pyproject.toml")["project"]["version"])')
+        TAG=$(git tag --contains HEAD)
+        if [ -z "$TAG" ]; then
+          echo "Commit is not tagged. Failing the workflow."
+          exit 1
+        fi
+        if [ "$VERSION" != "$TAG" ]; then
+          echo "Version in pyproject.toml ($VERSION) does not match the git tag ($TAG). Failing the workflow."
+          exit 1
+        fi
+        echo "Version and commit tag match. Proceeding with the workflow."
+
+    - name: Install pypa/build/setuptools/twine
+      run: >-
+        python3 -m
+        pip install
+        build setuptools twine
+        --user
+
+    - name: Build a binary wheel and a source tarball
+      run: python3 -m build
+
+    - name: Publish to PyPI
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+      run: twine upload dist/*
+

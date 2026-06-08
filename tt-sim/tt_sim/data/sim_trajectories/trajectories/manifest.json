@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-05-18T14:34:37.035687+00:00",
+  "generator": "trajectories",
+  "count": 1000,
+  "config": {
+    "env": "fancy/TableTennis-v1",
+    "predictor": "ballistic"
+  },
+  "files": [
+    "batch_000.npy"
+  ]
+}

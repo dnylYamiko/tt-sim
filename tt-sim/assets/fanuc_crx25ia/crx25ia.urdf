@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CRX-25iA URDF — built from real controller DCS data (serial 6064500003).
+     FK validated against real robot TCP at sub-mm accuracy.
+
+     Kinematic parameters (from DCS capsule geometry + FK optimization):
+       J1 height:      0.405 m
+       J2 upper arm:   0.950 m  (along Z)
+       Elbow Y-offset: -0.183 m
+       J4 forearm:     0.730 m  (along X)
+       J6 wrist:       0.140 m  (along X)
+
+     Joint axes: Z, Y, -Y, -X, -Y, -X
+     Joint limits from controller: ±180, ±180, ±270, ±190, ±180, ±190 deg
+
+     Fanuc-to-URDF joint offsets (for mapping real controller angles):
+       J2: +31.1 deg,  J3: -16.7 deg
+
+     Visual geometry: simple cylinders/capsules (no meshes available for CRX-25iA).
+-->
+<robot name="fanuc_crx25ia">
+
+  <material name="fanuc_white">
+    <color rgba="0.92 0.92 0.90 1.0"/>
+  </material>
+  <material name="fanuc_green">
+    <color rgba="0.0 0.55 0.25 1.0"/>
+  </material>
+  <material name="fanuc_gray">
+    <color rgba="0.25 0.25 0.25 1.0"/>
+  </material>
+
+  <!-- ============ BASE LINK ============ -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0.15" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.135" length="0.30"/>
+      </geometry>
+      <material name="fanuc_green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.15" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.135" length="0.30"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="20.0"/>
+      <origin xyz="0 0 0.10"/>
+      <inertia ixx="0.12" ixy="0" ixz="0" iyy="0.12" iyz="0" izz="0.18"/>
+    </inertial>
+  </link>
+
+  <!-- ============ LINK 1 (shoulder) ============ -->
+  <link name="link_1">
+    <visual>
+      <origin xyz="0 0 -0.05" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.12" length="0.15"/>
+      </geometry>
+      <material name="fanuc_white"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.05" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.12" length="0.15"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="15.0"/>
+      <origin xyz="0 0 -0.05"/>
+      <inertia ixx="0.08" ixy="0" ixz="0" iyy="0.08" iyz="0" izz="0.10"/>
+    </inertial>
+  </link>
+
+  <joint name="joint_1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link_1"/>
+    <origin xyz="0 0 0.405" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.1416" upper="3.1416" velocity="0.5323" effort="200"/>
+  </joint>
+
+  <!-- ============ LINK 2 (upper arm) ============ -->
+  <link name="link_2">
+    <visual>
+      <origin xyz="0 0 0.475" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.10" length="0.95"/>
+      </geometry>
+      <material name="fanuc_white"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.475" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.12" length="0.95"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="30.0"/>
+      <origin xyz="0 0 0.45"/>
+      <inertia ixx="2.5" ixy="0" ixz="0" iyy="2.5" iyz="0" izz="0.15"/>
+    </inertial>
+  </link>
+
+  <joint name="joint_2" type="revolute">
+    <parent link="link_1"/>
+    <child link="link_2"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-3.1416" upper="3.1416" velocity="0.5323" effort="200"/>
+  </joint>
+
+  <!-- ============ LINK 3 (elbow) ============ -->
+  <link name="link_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.10"/>
+      </geometry>
+      <material name="fanuc_green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.10"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="10.0"/>
+      <origin xyz="0 0 0"/>
+      <inertia ixx="0.06" ixy="0" ixz="0" iyy="0.06" iyz="0" izz="0.06"/>
+    </inertial>
+  </link>
+
+  <joint name="joint_3" type="revolute">
+    <parent link="link_2"/>
+    <child link="link_3"/>
+    <origin xyz="0 -0.183 0.950" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-4.7124" upper="4.7124" velocity="2.0944" effort="150"/>
+  </joint>
+
+  <!-- ============ LINK 4 (forearm) ============ -->
+  <link name="link_4">
+    <visual>
+      <origin xyz="0.365 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.08" length="0.73"/>
+      </geometry>
+      <material name="fanuc_white"/>
+    </visual>
+    <collision>
+      <origin xyz="0.365 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.095" length="0.73"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="8.0"/>
+      <origin xyz="0.35 0 0"/>
+      <inertia ixx="0.03" ixy="0" ixz="0" iyy="0.40" iyz="0" izz="0.40"/>
+    </inertial>
+  </link>
+
+  <joint name="joint_4" type="revolute">
+    <parent link="link_3"/>
+    <child link="link_4"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="-1 0 0"/>
+    <limit lower="-3.3161" upper="3.3161" velocity="3.1416" effort="100"/>
+  </joint>
+
+  <!-- ============ LINK 5 (wrist bend) ============ -->
+  <link name="link_5">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.065"/>
+      </geometry>
+      <material name="fanuc_green"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.065"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="3.0"/>
+      <origin xyz="0 0 0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <joint name="joint_5" type="revolute">
+    <parent link="link_4"/>
+    <child link="link_5"/>
+    <origin xyz="0.730 0 0" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-3.1416" upper="3.1416" velocity="3.1416" effort="80"/>
+  </joint>
+
+  <!-- ============ LINK 6 (flange) ============ -->
+  <link name="link_6">
+    <visual>
+      <origin xyz="0.07 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.045" length="0.14"/>
+      </geometry>
+      <material name="fanuc_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="0.07 0 0" rpy="0 1.5708 0"/>
+      <geometry>
+        <cylinder radius="0.065" length="0.14"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="2.0"/>
+      <origin xyz="0.07 0 0"/>
+      <inertia ixx="0.002" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.002"/>
+    </inertial>
+  </link>
+
+  <joint name="joint_6" type="revolute">
+    <parent link="link_5"/>
+    <child link="link_6"/>
+    <origin xyz="0.140 0 0" rpy="0 0 0"/>
+    <axis xyz="-1 0 0"/>
+    <limit lower="-3.3161" upper="3.3161" velocity="3.1416" effort="50"/>
+  </joint>
+
+  <!-- ============ TOOL FRAME ============ -->
+  <link name="tool0"/>
+
+  <joint name="joint_6-tool0" type="fixed">
+    <parent link="link_6"/>
+    <child link="tool0"/>
+    <origin xyz="0 0 0" rpy="3.1416 -1.5708 0"/>
+  </joint>
+
+</robot>

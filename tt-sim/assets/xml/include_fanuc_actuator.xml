@@ -1,0 +1,13 @@
+<mujocoinclude>
+    <!-- CRX-25iA actuators: torque-controlled motors with gravity compensation.
+         ctrlrange sized for URDF-accurate masses (~88kg total).
+         Gravity comp is applied in run.py control loop via qfrc_bias. -->
+    <actuator>
+        <motor name="fanuc_act_1" joint="fanuc/joint_1" gear="1" ctrllimited="true" ctrlrange="-500 500"/>
+        <motor name="fanuc_act_2" joint="fanuc/joint_2" gear="1" ctrllimited="true" ctrlrange="-500 500"/>
+        <motor name="fanuc_act_3" joint="fanuc/joint_3" gear="1" ctrllimited="true" ctrlrange="-300 300"/>
+        <motor name="fanuc_act_4" joint="fanuc/joint_4" gear="1" ctrllimited="true" ctrlrange="-150 150"/>
+        <motor name="fanuc_act_5" joint="fanuc/joint_5" gear="1" ctrllimited="true" ctrlrange="-80 80"/>
+        <motor name="fanuc_act_6" joint="fanuc/joint_6" gear="1" ctrllimited="true" ctrlrange="-50 50"/>
+    </actuator>
+</mujocoinclude>

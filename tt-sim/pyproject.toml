@@ -1,0 +1,19 @@
+[project]
+name = "tt-sim"
+version = "0.1.0"
+description = "Modular table tennis robot simulation"
+requires-python = ">=3.10"
+dependencies = [
+    "fancy_gym[mujoco]",
+    "numpy",
+    "scipy",
+    "ikpy",
+    "click",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.setuptools.packages.find]
+include = ["tt_sim*"]

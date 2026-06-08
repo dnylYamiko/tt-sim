@@ -1,0 +1,13 @@
+<mujocoinclude>
+    <!-- CRX-25iA actuators: torque-controlled motors with gear ratios.
+         Gear ratios normalize ctrl to [-1, 1] (matching WAM pattern).
+         Actual torque = ctrl * gear. ctrlrange maps to full torque authority. -->
+    <actuator>
+        <motor name="fanuc_act_1" joint="fanuc/joint_1" gear="500" ctrllimited="true" ctrlrange="-1 1"/>
+        <motor name="fanuc_act_2" joint="fanuc/joint_2" gear="500" ctrllimited="true" ctrlrange="-1 1"/>
+        <motor name="fanuc_act_3" joint="fanuc/joint_3" gear="300" ctrllimited="true" ctrlrange="-1 1"/>
+        <motor name="fanuc_act_4" joint="fanuc/joint_4" gear="150" ctrllimited="true" ctrlrange="-1 1"/>
+        <motor name="fanuc_act_5" joint="fanuc/joint_5" gear="80"  ctrllimited="true" ctrlrange="-1 1"/>
+        <motor name="fanuc_act_6" joint="fanuc/joint_6" gear="50"  ctrllimited="true" ctrlrange="-1 1"/>
+    </actuator>
+</mujocoinclude>

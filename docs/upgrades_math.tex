@@ -1,0 +1,507 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{caption}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, citecolor=blue!60!black, urlcolor=blue!60!black}
+
+\newcommand{\vv}[1]{\mathbf{#1}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\abs}[1]{\left|#1\right|}
+
+\title{\textbf{Mathematical Formulation of Staged Upgrades\\for a Table Tennis Robot Simulation}\\[6pt]
+\large ME~595 --- Homework~1}
+\author{Pramit Baig}
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+%======================================================================
+\section{Introduction}
+%======================================================================
+
+We consider a simulated table tennis environment in MuJoCo containing two robot platforms:
+\begin{itemize}[nosep]
+    \item \textbf{WAM} --- 7-DOF, 14\,kg, ceiling-mounted Barrett arm with 30\,cm paddle.
+    \item \textbf{Fanuc CRX-25iA} --- 6-DOF, 118\,kg, floor-mounted industrial arm with 15\,cm paddle.
+\end{itemize}
+The system is decomposed into eight subsystems (perception, prediction, spin estimation, aiming, swing planning, high-level control, low-level control, correction), each upgraded from analytic baselines (Stage~0) through physics-based models (Stage~1) to optimization-based controllers (Stage~2).
+
+\paragraph{Simulation parameters.}
+The simulation timestep is $\Delta t_{\text{sim}} = 0.008$\,s (125\,Hz), with an XML timestep of 0.002\,s and frame-skip of 4.
+The ball has fixed initial velocity $\vv{v}_0 = (2.5, 0, 0.5)$\,m/s, random start position $x \in [-1, -0.2]$, $y \in [-0.65, 0.65]$, $z = 1.75$\,m, and the table surface is at $z_{\text{table}} = 0.76$\,m.
+
+%======================================================================
+\section{Upgrade 1: Drag-Bounce Predictor}
+\label{sec:predictor}
+%======================================================================
+
+\subsection{Motivation}
+
+The Stage~0 ballistic predictor uses constant-velocity extrapolation, ignoring gravity entirely.  It predicts the ball at $z \approx 0.06$\,m (below the table) with $v_z = -5.8$\,m/s at the intercept plane, when in reality the ball bounces off the table at $t \approx 0.5$\,s and arrives at $z \approx 1.22$\,m with $v_z = +2.7$\,m/s.  This 0.46\,m position error with a flipped velocity sign makes upstream aiming and swing planning futile.
+
+\subsection{Dynamics Model}
+
+The ball state is $\vv{y} = [\vv{x}, \vv{v}]^T \in \mathbb{R}^6$, where $\vv{x}$ is position and $\vv{v}$ is velocity.  The ODE governing flight is:
+\begin{equation}
+    \frac{d\vv{y}}{dt} = \begin{bmatrix} \vv{v} \\ \vv{g} - k_d\,\norm{\vv{v}}\,\vv{v} \end{bmatrix}
+    \label{eq:drag_ode}
+\end{equation}
+where $\vv{g} = (0, 0, -9.81)$\,m/s$^2$ is gravitational acceleration and $k_d$ is the quadratic drag constant:
+\begin{equation}
+    k_d = \frac{C_D\,\rho_{\text{air}}\,A}{2m},
+    \quad A = \pi r^2
+\end{equation}
+
+\begin{table}[H]
+\centering\small
+\caption{Ball physical parameters.}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Symbol & Value & Description \\
+\midrule
+$C_D$ & 0.4 & Drag coefficient (sphere, turbulent) \\
+$\rho_{\text{air}}$ & 1.225\,kg/m$^3$ & Air density at sea level \\
+$m$ & 0.0027\,kg & ITTF regulation ball mass \\
+$r$ & 0.02\,m & Ball radius \\
+$A$ & $1.257 \times 10^{-3}$\,m$^2$ & Cross-sectional area \\
+$e$ & 0.91 & Coefficient of restitution \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Discovery: MuJoCo has no air resistance.}  The MuJoCo XML sets \texttt{density=0}, \texttt{viscosity=0}, and ball \texttt{damping=0}.  Therefore the predictor is instantiated with $C_D = 0$, reducing Eq.~\eqref{eq:drag_ode} to pure ballistic flight with gravity.  The drag infrastructure remains for environments where air resistance is modeled.
+
+\subsection{Bounce Detection and Resolution}
+
+Integration proceeds via RK45 (\texttt{max\_step} $= 0.01$\,s) with an event function that triggers when:
+\begin{equation}
+    z(t) = z_{\text{table}} \quad \text{and} \quad \dot{z}(t) < 0 \quad \text{(descending)}
+\end{equation}
+Upon detection, the bounce is resolved as:
+\begin{equation}
+    z \leftarrow z_{\text{table}}, \qquad v_z \leftarrow -e\,v_z, \qquad v_x, v_y \text{ unchanged}
+\end{equation}
+A maximum of 5 bounces are modeled, with time nudged by $10^{-8}$\,s past each event to avoid re-triggering.
+
+\subsection{Initial State Bootstrap}
+
+Given $n$ observations $\{(\vv{x}_i, t_i)\}_{i=1}^n$, the initial position and velocity are estimated via least-squares.  For the horizontal components ($x$, $y$):
+\begin{equation}
+    \hat{p}(t) = c_0 + c_1\,\Delta t, \quad \text{giving} \quad p_0 = c_0,\; v_0 = c_1
+\end{equation}
+For the vertical component, a gravity correction is applied before fitting:
+\begin{equation}
+    z_{\text{corr},i} = z_i + \tfrac{1}{2}(9.81)\,\Delta t_i^2, \quad \text{then fit}\; z_{\text{corr}} = c_0 + c_1\,\Delta t
+\end{equation}
+
+%======================================================================
+\section{Upgrade 2: Specular Aimer}
+\label{sec:aimer}
+%======================================================================
+
+\subsection{Motivation}
+
+The Stage~0 aimer (\texttt{FaceNetAimer}) simply points the paddle normal toward the net center: $\vv{n} = (\vv{x}_{\text{net}} - \vv{x}_{\text{ball}}) / \norm{\vv{x}_{\text{net}} - \vv{x}_{\text{ball}}}$.  This ignores the incoming ball velocity entirely and cannot control where the ball lands on the opponent's side.
+
+\subsection{Specular Reflection Law}
+
+Given the ball's incoming velocity $\vv{v}_{\text{in}}$ at the predicted intercept and a desired target point $\vv{p}_{\text{target}}$, the outgoing velocity direction is:
+\begin{equation}
+    \hat{\vv{d}} = \frac{\vv{p}_{\text{target}} - \vv{p}_{\text{contact}}}{\norm{\vv{p}_{\text{target}} - \vv{p}_{\text{contact}}}}
+\end{equation}
+The outgoing velocity magnitude is set by a restitution model:
+\begin{equation}
+    \vv{v}_{\text{out}} = e\,\norm{\vv{v}_{\text{in}}}\,\hat{\vv{d}}
+\end{equation}
+The required paddle face normal is the bisector of $-\vv{v}_{\text{in}}$ and $\vv{v}_{\text{out}}$:
+\begin{equation}
+    \vv{n}_{\text{paddle}} = \frac{\vv{v}_{\text{out}} - \vv{v}_{\text{in}}}{\norm{\vv{v}_{\text{out}} - \vv{v}_{\text{in}}}}
+    \label{eq:specular_normal}
+\end{equation}
+This follows from the specular reflection law: if a ball with velocity $\vv{v}_{\text{in}}$ strikes a surface with outward normal $\vv{n}$, the reflected velocity is $\vv{v}_{\text{out}} = \vv{v}_{\text{in}} - 2(\vv{v}_{\text{in}} \cdot \vv{n})\,\vv{n}$.  Rearranging for $\vv{n}$ yields Eq.~\eqref{eq:specular_normal}.
+
+\subsection{Follow-Through Velocity}
+
+The paddle is given a nonzero velocity at contact to improve the quality of the hit:
+\begin{equation}
+    \vv{v}_{\text{paddle}} = 0.3\,\norm{\vv{v}_{\text{in}}}\,\vv{n}_{\text{paddle}}
+\end{equation}
+This 30\% follow-through adds momentum transfer along the paddle normal direction.
+
+\subsection{Parameters}
+
+The default target is the center of the opponent's half-table:
+\begin{equation}
+    \vv{p}_{\text{target}} = \left(-\frac{L}{4},\; 0,\; z_{\text{table}}\right) = (-0.685,\; 0,\; 0.76)\;\text{m}
+\end{equation}
+where $L = 2.74$\,m is the standard table length.
+
+%======================================================================
+\section{Upgrade 3: Quintic Swing Planner}
+\label{sec:swing}
+%======================================================================
+
+\subsection{Motivation}
+
+The Stage~0 swing uses linear interpolation (lerp) in joint space, which produces discontinuous velocities at the start and end of the trajectory.  More critically, lerp cannot reach arbitrary targets because it has no notion of timing relative to the physics --- it simply interpolates between configurations at a fixed rate.  The quintic planner provides $C^2$ continuity (continuous position, velocity, and acceleration) and proper time parameterization.
+
+\subsection{Quintic Polynomial}
+
+For each joint $j$, the trajectory is a fifth-order polynomial in time:
+\begin{equation}
+    q_j(t) = a_0 + a_1\,t + a_2\,t^2 + a_3\,t^3 + a_4\,t^4 + a_5\,t^5
+\end{equation}
+with derivatives:
+\begin{align}
+    \dot{q}_j(t) &= a_1 + 2a_2\,t + 3a_3\,t^2 + 4a_4\,t^3 + 5a_5\,t^4 \\
+    \ddot{q}_j(t) &= 2a_2 + 6a_3\,t + 12a_4\,t^2 + 20a_5\,t^3
+\end{align}
+
+\subsection{Boundary Conditions}
+
+Six boundary conditions fully determine the six coefficients.  At $t=0$ (start) and $t=T$ (contact time):
+\begin{equation}
+    \underbrace{\begin{bmatrix} 1 & 0 & 0 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 & 0 & 0 \\ 0 & 0 & 2 & 0 & 0 & 0 \\ 1 & T & T^2 & T^3 & T^4 & T^5 \\ 0 & 1 & 2T & 3T^2 & 4T^3 & 5T^4 \\ 0 & 0 & 2 & 6T & 12T^2 & 20T^3 \end{bmatrix}}_{\vv{A}}
+    \begin{bmatrix} a_0\\a_1\\a_2\\a_3\\a_4\\a_5 \end{bmatrix}
+    = \begin{bmatrix} q_0\\\dot{q}_0\\\ddot{q}_0\\q_f\\\dot{q}_f\\\ddot{q}_f \end{bmatrix}
+\end{equation}
+where $T = \max(t_{\text{contact}}, 0.01)$ and:
+\begin{itemize}[nosep]
+    \item $q_0 = q_{\text{current}}$, $\dot{q}_0 = \dot{q}_{\text{current}}$ (from finite differences or zero), $\ddot{q}_0 = 0$.
+    \item $q_f = q_{\text{IK}}(\text{target})$ from inverse kinematics, $\dot{q}_f$ from Jacobian mapping, $\ddot{q}_f = 0$.
+\end{itemize}
+
+\subsection{Terminal Velocity via Jacobian}
+
+The desired Cartesian paddle velocity $\vv{v}_{\text{paddle}}$ is mapped to joint velocity using the damped pseudo-inverse of the Jacobian:
+\begin{equation}
+    \dot{\vv{q}}_f = \vv{J}^T\!\left(\vv{J}\vv{J}^T + \lambda^2\,\vv{I}\right)^{-1}\vv{v}_{\text{paddle}}
+    \label{eq:damped_pinv}
+\end{equation}
+with damping $\lambda = 0.01$.
+
+\subsection{Inverse Kinematics}
+
+The target joint configuration $q_f$ is found by iterative damped least-squares IK using MuJoCo's analytical Jacobian.  The IK solves a 6D error (3 position + 3 orientation):
+\begin{equation}
+    \vv{e} = \begin{bmatrix} \vv{p}_{\text{target}} - \vv{p}_{\text{ee}} \\ w_{\text{ori}} \cdot (\hat{\vv{z}}_{\text{ee}} \times \vv{n}_{\text{target}}) \end{bmatrix}, \quad
+    \Delta\vv{q} = \vv{J}_6^T\!\left(\vv{J}_6\vv{J}_6^T + \lambda_{\text{ik}}^2\,\vv{I}\right)^{-1}\vv{e}
+\end{equation}
+where $\hat{\vv{z}}_{\text{ee}}$ is the EE body's local Z-axis (the paddle face normal), $w_{\text{ori}} = 0.5$, and $\lambda_{\text{ik}} = 0.05$.  Each iteration is clamped to $\norm{\Delta\vv{q}}_\infty \leq 0.2$\,rad.  Convergence: $\norm{\vv{e}_{\text{pos}}} < 0.005$\,m and $\norm{\vv{e}_{\text{ori}}} < 0.02$.  The IK is seeded from $\vv{q}_{\text{current}}$ for solution continuity.
+
+%======================================================================
+\section{Upgrade 4: Replan Controller}
+\label{sec:replan}
+%======================================================================
+
+\subsection{Motivation}
+
+The open-loop controller plans once after accumulating observations and follows the trajectory blindly.  As more ball observations arrive, the predicted intercept improves, but the open-loop swing cannot adapt.  The replan controller re-executes the full pipeline (predict $\to$ aim $\to$ swing) every $N_{\text{replan}}$ frames.
+
+\subsection{Intercept Time Estimation}
+
+The ball's arrival time at $x = x_{\text{robot}}$ is estimated by probing the predictor at 250\,Hz:
+\begin{equation}
+    t_{\text{intercept}} = \min\!\left\{t_{\text{now}} + i\,\Delta t_s \;\middle|\; x_{\text{pred}}(t) \geq x_{\text{robot}},\; i = 1, \ldots, \frac{t_{\text{predict}}}{\Delta t_s}\right\}
+\end{equation}
+with $\Delta t_s = 0.004$\,s.  Fallback (linear extrapolation):
+\begin{equation}
+    t_{\text{intercept}} = t_{\text{now}} + \frac{x_{\text{robot}} - x_{\text{ball}}}{v_x}
+\end{equation}
+
+\subsection{Warm-Start Velocity}
+
+At each replan, the current joint velocity is estimated from finite differences:
+\begin{equation}
+    \dot{\vv{q}} \approx \frac{\vv{q}_{\text{current}} - \vv{q}_{\text{prev}}}{N_{\text{replan}} \cdot \Delta t_{\text{sim}}}
+\end{equation}
+This is passed to the quintic planner as $\dot{q}_0$ to ensure the new trajectory starts with the correct velocity, maintaining $C^1$ continuity across replans.
+
+\subsection{Lookahead Strategy}
+
+Rather than commanding the position one replan interval ahead (which would be too conservative), the controller looks further into the trajectory:
+\begin{equation}
+    \Delta t_{\text{ahead}} = \min\!\left(\max(2\,\Delta t_{\text{replan}},\; 0.3\,T_{\text{traj}}),\; T_{\text{traj}}\right)
+\end{equation}
+where $\Delta t_{\text{replan}} = N_{\text{replan}} \cdot \Delta t_{\text{sim}} = 0.032$\,s and $T_{\text{traj}}$ is the total trajectory duration.
+
+\subsection{Parameters}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Parameter & Value & Description \\
+\midrule
+$N_{\text{replan}}$ & 4 frames & Replan interval ($\sim$31\,Hz) \\
+$N_{\text{min\_obs}}$ & 4 & Minimum observations before first plan \\
+$z$ clamp & $[0.76, 2.0]$\,m & Ball height clamp \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%======================================================================
+\section{Upgrade 5: Fanuc Actuator Model}
+\label{sec:actuator}
+%======================================================================
+
+\subsection{Motivation}
+
+The original Fanuc model used \texttt{gear=1} with raw torques (Nm), causing QACC (acceleration computation) instability in MuJoCo.  The 118\,kg arm requires high torques that exceeded numerical stability bounds.  A complete actuator overhaul was necessary.
+
+\subsection{PD Control Law}
+
+The low-level controller is a per-joint PD law operating in normalized control space $u \in [-1, 1]$.  Per-joint gains are divided by the gear ratio:
+\begin{equation}
+    k_{p,j} = \frac{k_p^{\text{scale}}}{G_j}, \qquad k_{d,j} = \frac{k_d^{\text{scale}}}{G_j}
+\end{equation}
+where $G_j$ is the gear ratio for joint $j$.  The control signal is:
+\begin{equation}
+    u_j = k_{p,j}\,(q_{\text{des},j} - q_j) - k_{d,j}\,\dot{q}_j + \frac{\tau_{\text{bias},j}}{G_j}
+    \label{eq:pd_control}
+\end{equation}
+where $\tau_{\text{bias},j}$ is MuJoCo's \texttt{qfrc\_bias} (gravity + Coriolis torques), providing feedforward gravity compensation.  The output is clipped: $u_j \leftarrow \text{clip}(u_j, -1, 1)$.
+
+\subsection{Fanuc Configuration}
+
+\begin{table}[H]
+\centering\small
+\caption{Fanuc CRX-25iA actuator parameters.}
+\begin{tabular}{@{}ccccc@{}}
+\toprule
+Joint & Gear $G_j$ & $k_p$ (eff.) & $k_d$ (eff.) & Range \\
+\midrule
+J1 (Z) & 500 & 1.60 & 0.10 & $\pm\pi$ \\
+J2 (Y) & 500 & 1.60 & 0.10 & $\pm\pi$ \\
+J3 ($-$Y) & 300 & 2.67 & 0.17 & $\pm 3\pi/2$ \\
+J4 ($-$X) & 150 & 5.33 & 0.33 & $\pm 190^{\circ}$ \\
+J5 ($-$Y) & 80 & 10.0 & 0.63 & $\pm\pi$ \\
+J6 ($-$X) & 50 & 16.0 & 1.00 & $\pm 190^{\circ}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The gear ratios serve three purposes: (1) normalize the control space to $[-1, 1]$, (2) regularize the mass matrix for numerical stability, and (3) provide physically meaningful torque amplification (higher gear ratios for larger, heavier joints).
+
+%======================================================================
+\section{Upgrade 6: MPC Controller}
+\label{sec:mpc}
+%======================================================================
+
+\subsection{Motivation}
+
+The replan controller causes severe performance degradation on the Fanuc (45\% $\to$ 17.5\% contact rate) because the 6-DOF IK produces discontinuous solution jumps between replans.  The heavy arm cannot track jerky trajectories.  A receding-horizon MPC directly optimizes joint trajectories, producing smooth solutions with warm-starting across replans.
+
+\subsection{Symbolic Forward Kinematics}
+\label{sec:fk}
+
+The FK is built symbolically from the MuJoCo XML body chain using CasADi, enabling automatic differentiation for the NLP solver.
+
+\paragraph{Kinematic chain.}  Starting from the world frame with $\vv{R} = \vv{I}_3$, $\vv{p} = \vv{0}$, for each body in the chain (world $\to$ EE):
+\begin{align}
+    \vv{p} &\leftarrow \vv{p} + \vv{R}\,\vv{t}_{\text{body}} \\
+    \vv{R} &\leftarrow \vv{R}\,\vv{R}_{\text{body}} \\
+    \vv{R} &\leftarrow \vv{R}\,\vv{R}(\hat{\vv{a}}_j, q_j) \quad \text{(if body has joint $j$)}
+\end{align}
+where $\vv{t}_{\text{body}}$ and $\vv{R}_{\text{body}}$ are constant offsets from the XML, and $\vv{R}(\hat{\vv{a}}_j, q_j)$ is the joint rotation.
+
+\paragraph{Rodrigues rotation.}  For unit axis $\hat{\vv{a}} = (a_x, a_y, a_z)$ and angle $\theta$:
+\begin{equation}
+    \vv{R}(\hat{\vv{a}}, \theta) = \begin{bmatrix}
+    a_x^2 C + c & a_x a_y C - a_z s & a_x a_z C + a_y s \\
+    a_y a_x C + a_z s & a_y^2 C + c & a_y a_z C - a_x s \\
+    a_z a_x C - a_y s & a_z a_y C + a_x s & a_z^2 C + c
+    \end{bmatrix}
+\end{equation}
+where $c = \cos\theta$, $s = \sin\theta$, $C = 1 - \cos\theta$.
+
+\paragraph{Body quaternion conversion.}  Constant body rotations are converted from quaternion $(w, x, y, z)$:
+\begin{equation}
+    \vv{R}_{\text{body}} = \begin{bmatrix}
+    1-2(y^2+z^2) & 2(xy-wz) & 2(xz+wy) \\
+    2(xy+wz) & 1-2(x^2+z^2) & 2(yz-wx) \\
+    2(xz-wy) & 2(yz+wx) & 1-2(x^2+y^2)
+    \end{bmatrix}
+\end{equation}
+
+\paragraph{Paddle normal extraction.}  The paddle face normal is the EE body's Z-axis, given by column~2 of $\vv{R}_{\text{ee}}$:
+\begin{equation}
+    \hat{\vv{z}}_{\text{ee}} = \begin{bmatrix} R_{02} \\ R_{12} \\ R_{22} \end{bmatrix}
+\end{equation}
+
+\subsection{NLP Formulation}
+
+\paragraph{Decision variables.}  $\vv{Q} = [\vv{q}_1, \ldots, \vv{q}_N] \in \mathbb{R}^{N \cdot n_j}$, where $N = 15$ is the horizon length and $n_j$ is the number of joints.
+
+\paragraph{Parameters (supplied at solve time).}
+\begin{equation}
+    \vv{p} = \left[\vv{q}_0,\; \vv{p}_{\text{target}},\; \vv{n}_{\text{target}},\; \dot{\vv{q}}_{\text{target}},\; \Delta t\right]
+\end{equation}
+where $\vv{q}_0$ is the current joint state (not optimized).
+
+\paragraph{Cost function.}  The total cost has five terms:
+
+\begin{align}
+    J &= \underbrace{w_{\text{pos}}\,\norm{\vv{p}_{\text{ee}}(\vv{q}_N) - \vv{p}_{\text{target}}}^2}_{\text{terminal position}}
+    + \underbrace{w_{\text{ori}}\,\norm{\hat{\vv{z}}_{\text{ee}}(\vv{q}_N) \times \vv{n}_{\text{target}}}^2}_{\text{terminal orientation}} \nonumber \\
+    &+ \underbrace{w_{\text{vel}}\,\left\|\frac{\vv{q}_N - \vv{q}_{N-1}}{\Delta t} - \dot{\vv{q}}_{\text{target}}\right\|^2}_{\text{terminal velocity}} \nonumber \\[4pt]
+    &+ \sum_{k=1}^{N} \underbrace{w_{\text{eff}}\,\left\|\frac{\vv{q}_k - \vv{q}_{k-1}}{\Delta t}\right\|^2}_{\text{effort (velocity)}}
+    + \sum_{k=2}^{N} \underbrace{w_{\text{sm}}\,\left\|\frac{\vv{q}_k - 2\vv{q}_{k-1} + \vv{q}_{k-2}}{\Delta t^2}\right\|^2}_{\text{smoothness (acceleration)}}
+    \label{eq:mpc_cost}
+\end{align}
+
+The orientation error uses the cross product $\hat{\vv{z}}_{\text{ee}} \times \vv{n}_{\text{target}}$, which vanishes when the vectors are aligned and has magnitude $\sin\alpha$ for misalignment angle $\alpha$ (small-angle approximation: $\sin\alpha \approx \alpha$).
+
+\paragraph{Weights.}
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Weight & Value & Role \\
+\midrule
+$w_{\text{pos}}$ & 1000 & Reach the target position \\
+$w_{\text{ori}}$ & 100 & Align paddle face \\
+$w_{\text{vel}}$ & 1 & Match desired end velocity \\
+$w_{\text{sm}}$ & 0.01 & Penalize acceleration (jerk reduction) \\
+$w_{\text{eff}}$ & 0.001 & Penalize velocity (energy) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Constraints.}
+
+Per-step joint velocity limits (box constraints on the constraint vector):
+\begin{equation}
+    \left|\frac{q_{k,j} - q_{k-1,j}}{\Delta t}\right| \leq \dot{q}_{\max} = 5.0\;\text{rad/s}, \quad \forall\, k \in [1, N],\; j \in [1, n_j]
+\end{equation}
+Joint position bounds from the MuJoCo model:
+\begin{equation}
+    q_j^{\min} \leq q_{k,j} \leq q_j^{\max}, \quad \forall\, k \in [1, N]
+\end{equation}
+
+\paragraph{Solver.}  IPOPT with warm-start ($\mu_{\text{init}} = 10^{-3}$), max 80 iterations, print suppressed.
+
+\subsection{Adaptive Horizon}
+
+The MPC timestep adapts to the remaining time until intercept:
+\begin{equation}
+    \Delta t_{\text{mpc}} = \max\!\left(\frac{t_{\text{remaining}}}{N},\; \Delta t_{\text{sim}}\right)
+\end{equation}
+This ensures the horizon always stretches to cover the intercept time.  With a fixed $\Delta t$, the 15-step horizon (0.48\,s) would be shorter than the typical ball travel time (0.5--0.7\,s), placing the terminal cost at the wrong time.
+
+\subsection{Warm-Start Strategy}
+
+Between solves, the previous solution $[\vv{q}_1^*, \ldots, \vv{q}_N^*]$ is shifted forward:
+\begin{equation}
+    \vv{q}_k^{(0)} = \vv{q}_{\min(k+1, N)}^*, \quad k = 1, \ldots, N
+\end{equation}
+The last step is duplicated.  This provides a feasible initial guess that is close to the new optimum, enabling IPOPT to converge in few iterations.
+
+\subsection{Lookahead Interpolation}
+
+The PD controller (Eq.~\ref{eq:pd_control}) needs $\vv{q}_{\text{des}}$ sufficiently ahead of $\vv{q}_{\text{current}}$ to generate adequate torque.  Pure trajectory following (querying at $t_{\text{now}}$) produces only $\sim$0.2\,rad PD error, while the quintic swing produces $\sim$1.1\,rad.  The MPC interpolates with a 60\% lookahead:
+\begin{equation}
+    t_{\text{query}} = \min\!\left(t_{\text{now}} + 0.6\,(t_{\text{end}} - t_{\text{now}}),\; t_{\text{end}}\right)
+\end{equation}
+
+\subsection{Target Joint Velocity}
+
+The desired terminal joint velocity is computed from the Cartesian paddle velocity via the FK Jacobian:
+\begin{equation}
+    \dot{\vv{q}}_{\text{target}} = \vv{J}_{\text{fk}}^T\!\left(\vv{J}_{\text{fk}}\vv{J}_{\text{fk}}^T + \lambda^2\,\vv{I}\right)^{-1}\vv{v}_{\text{paddle}}
+\end{equation}
+with $\lambda = 0.01$.  The Jacobian $\vv{J}_{\text{fk}}$ is obtained via CasADi automatic differentiation of the FK function.
+
+%======================================================================
+\section{Issues and Lessons Learned}
+\label{sec:lessons}
+%======================================================================
+
+\subsection{Upgrade Ordering: Quintic is the Prerequisite}
+
+Predictor and aimer upgrades have \emph{zero observable effect} when paired with the baseline lerp swing.  Lerp cannot reach arbitrary targets---it linearly interpolates in joint space at a fixed rate, so improved predictions of \emph{where} to intercept are useless if the arm cannot \emph{get there}.  Only after upgrading to the quintic swing planner do upstream accuracy improvements manifest in contact rates.  The correct upgrade order is: quintic first, then predictor, then aimer.
+
+\subsection{CasADi Column-Major vs.\ NumPy Row-Major}
+
+Two distinct column-major bugs were encountered:
+
+\paragraph{Bug 1: FK rotation flattening.}  The initial FK code used \texttt{ca.reshape(R\_ee, 9, 1)} to flatten the rotation matrix.  CasADi's reshape fills \emph{column-major}, producing $[R_{00}, R_{10}, R_{20}, R_{01}, \ldots]$.  When this was reshaped back with NumPy (\emph{row-major}), the result was $\vv{R}^T$.  The fix: explicitly flatten row-by-row using \texttt{ca.vertcat(R[0,:].T, R[1,:].T, R[2,:].T)}.
+
+\paragraph{Bug 2: NLP orientation extraction.}  Inside the NLP, \texttt{ca.reshape(R\_flat, 3, 3)} was used to reconstruct the rotation matrix.  Since \texttt{R\_flat} was already in row-major order (from the fix above), CasADi's column-major reshape produced the \emph{transpose}.  Consequently, \texttt{R\_ee[:, 2]} extracted the third \emph{row} (world Z in body frame) instead of the third \emph{column} (body Z in world frame).  The paddle was not facing the ball.  The fix: directly index the flat vector: $\hat{\vv{z}}_{\text{ee}} = [R_{\text{flat}}[2],\; R_{\text{flat}}[5],\; R_{\text{flat}}[8]]$.
+
+\subsection{IK Discontinuity Breaks Replan on Fanuc}
+
+The replan controller \emph{hurts} Fanuc performance (45\% $\to$ 17.5\% contact).  Root cause: the 6-DOF Fanuc IK produces different solutions at each replan because the IK landscape has multiple local minima for a 6-DOF arm.  Small changes in the predicted ball position cause the IK to jump between solution branches.  The 118\,kg arm cannot track these discontinuous trajectories.
+
+The 7-DOF WAM has a null space that provides smoother IK transitions, so replan improves WAM (20--25\%).  This asymmetry motivated the MPC controller, which eliminates IK entirely by optimizing in joint space.
+
+\subsection{MuJoCo Has No Air Resistance}
+
+The MuJoCo environment sets \texttt{density=0}, \texttt{viscosity=0}, and ball \texttt{damping=0}.  This was discovered after implementing the drag predictor with $C_D = 0.4$.  Setting $C_D = 0$ in the predictor (matching the sim) was critical---phantom drag caused systematic prediction errors of 5--10\,cm.
+
+\subsection{Ball Always Bounces Before Reaching Robot}
+
+Analysis of ball trajectories showed the ball always bounces on the table at $t \approx 0.5$\,s ($x \approx 0.26$--$1.06$\,m) before the robot intercepts at $t \approx 0.6$--$0.7$\,s.  The ballistic predictor (without bounce) predicts $z = 0.06$\,m at intercept (below the table, clipped to $z_{\text{table}}$) with $v_z = -5.8$\,m/s.  The bounce predictor correctly predicts $z \approx 1.22$\,m with $v_z = +2.7$\,m/s.  This $0.46$\,m error with a flipped velocity sign makes the predictor upgrade essential.
+
+\subsection{PD Interface Limits MPC Performance}
+
+The MPC operates at the trajectory level, outputting joint positions $\vv{q}_{\text{des}}$.  A PD controller converts these to torques.  This architecture creates a fundamental bottleneck: the PD gain determines how aggressively the arm tracks the desired trajectory.  With pure trajectory following ($t_{\text{query}} = t_{\text{now}}$), the PD error is only $\sim$0.2\,rad, producing weak torques.  The 60\% lookahead is a heuristic workaround, but a torque-level MPC (outputting $\boldsymbol{\tau}$ directly with full dynamics) would bypass this limitation entirely.
+
+\subsection{WAM Paddle Geom Rotation Mismatch}
+
+The WAM's paddle cylinder geometry has a quaternion rotation (\texttt{quat="0.71 0 0.71 0"}, approximately $90^{\circ}$ around Y) at the \emph{geom level}, rotating the physical paddle face from body Z to body X.  However, the IK code unconditionally aligns the EE body's Z-axis with the target normal.  For the WAM, this means the paddle orientation is off by $\sim$$90^{\circ}$.  This was identified but not yet fixed, as the primary focus was Fanuc performance.
+
+\subsection{Fanuc QACC Instability}
+
+The original Fanuc model used \texttt{gear=1} with raw Newton-meter torques.  MuJoCo's acceleration computation (QACC) became numerically unstable because the mass matrix condition number was extreme (heavy proximal joints, light distal joints, all with unit gear).  The fix: realistic gear ratios $[500, 500, 300, 150, 80, 50]$ that normalize the control space to $[-1, 1]$ and regularize the mass matrix.
+
+\subsection{High Variance in Small-Sample Evaluations}
+
+With 40-episode evaluations and stochastic initial conditions, contact rates vary by $\pm$10--15\% between runs.  For example, the MPC achieved 50\% in one 10-episode run and 12.5\% in a 40-episode run.  Reliable comparisons require multiple evaluation runs or larger episode counts.
+
+%======================================================================
+\section{Results Summary}
+\label{sec:results}
+%======================================================================
+
+\begin{table}[H]
+\centering\small
+\caption{Fanuc CRX-25iA results (40 episodes, drag\_bounce + specular).}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Swing & Controller & Contact & Landing & Notes \\
+\midrule
+Lerp & Open-loop & 0\% & 0\% & Baseline \\
+Quintic & Open-loop & 45--65\% & 10\% & Best overall \\
+Quintic & Replan & 17.5\% & 5\% & IK discontinuity \\
+Quintic & MPC & 37.5\% & 2.5\% & Best MPC run \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering\small
+\caption{WAM results (40 episodes, drag\_bounce + specular).}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Swing & Controller & Contact & Landing & Notes \\
+\midrule
+Lerp & Open-loop & 0\% & 0\% & Baseline \\
+Quintic & Replan & 20--25\% & 0\% & Best for WAM \\
+Quintic & MPC & 0\% & 0\% & Orientation bug (body Z vs X) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Key takeaway.}  The MPC eliminates IK discontinuity (improving Fanuc from 17.5\% to 37.5\%), but does not match open-loop quintic (45--65\%) due to the position-commanded PD interface.  Future work should explore torque-level MPC with full rigid-body dynamics in the NLP.
+
+\end{document}

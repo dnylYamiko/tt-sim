@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>fanuc_table_tennis_mpc</name>
+  <version>0.0.1</version>
+  <description>FANUC CRX-25iA table-tennis robot using SINDy-enhanced position MPC</description>
+  <maintainer email="danieltaona@gmail.com">taona</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>builtin_interfaces</depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-scipy</exec_depend>
+  <exec_depend>python3-matplotlib</exec_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

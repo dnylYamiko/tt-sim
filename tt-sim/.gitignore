@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+MUJOCO_LOG.TXT
+results/*.mp4
+results/*.png
+models/*.pt
+*.egg-info/
+dist/
+build/
+.eggs/

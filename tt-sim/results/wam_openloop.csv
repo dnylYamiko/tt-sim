@@ -1,0 +1,11 @@
+episode,contact,landed,landing_x,landing_y,prediction_error,reward,episode_time,perceiver,predictor,spin,aimer,swing,control
+0,False,False,,,,1.7404211464056018e-05,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+1,False,False,,,,0.0005547907504690252,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+2,False,False,,,,0.00018654575479817306,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+3,False,False,,,,3.415074759285375e-05,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+4,False,False,,,,7.905283543663266e-06,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+5,False,False,,,,0.00012278933794565016,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+6,False,False,,,,1.736828162184345e-05,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+7,False,False,,,,7.607961155868815e-05,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+8,False,False,,,,8.51688217340385e-06,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
+9,False,False,,,,2.1841438635239465e-05,0.16,sim,neural_ode,zero,face_net,lerp,open_loop
